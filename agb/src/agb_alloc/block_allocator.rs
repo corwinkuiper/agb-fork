@@ -48,6 +48,18 @@ pub struct BlockAllocator {
     state: Mutex<RefCell<BlockAllocatorState>>,
 }
 
+enum PotentialLocation<T> {
+    None,
+    WithBlock(T),
+    ExactFit(T),
+}
+
+impl<T> PotentialLocation<T> {
+    fn is_none(&self) -> bool {
+        matches!(self, PotentialLocation::None)
+    }
+}
+
 impl BlockAllocator {
     pub(crate) const unsafe fn new(start: StartEnd) -> Self {
         Self {
@@ -162,6 +174,162 @@ impl BlockAllocator {
         self.normalise();
     }
 
+    pub unsafe fn growth(
+        &self,
+        ptr: *mut u8,
+        old_layout: Layout,
+        new_size: usize,
+    ) -> Option<NonNull<u8>> {
+        let old_layout = Block::either_layout(old_layout);
+        let new_layout =
+            Block::either_layout(Layout::from_size_align(new_size, old_layout.align()).unwrap());
+
+        let (block_after_layout, block_after_layout_offset) = new_layout
+            .extend(Layout::new::<Block>().align_to(8).unwrap().pad_to_align())
+            .unwrap();
+
+        // traverse the list, keep track of the first that is big enough for new
+        // me and stop searching once we've reached just after current me
+
+        let next_block_addr = ptr.add(block_after_layout_offset);
+
+        free(|cs| {
+            let mut potential_block: PotentialLocation<*mut Option<SendNonNull<Block>>> =
+                PotentialLocation::None;
+
+            let mut state = self.state.borrow(cs).borrow_mut();
+            let mut list_ptr = &mut state.first_free_block;
+
+            let tip = self
+                .inner_allocator
+                .current_tip_critical(cs)
+                .expect("we should have allocated if we are able to grow a section");
+
+            if ptr as usize + old_layout.size() == tip.as_ptr() as usize {
+                // we can grow instantly after us
+                let difference = Layout::from_size_align(new_layout.size() - old_layout.size(), 8)
+                    .expect("allocation shouldn't be too large");
+
+                let _ = self.inner_allocator.alloc_critical(difference, cs);
+                // return the current pointer
+                return NonNull::new(ptr);
+            }
+
+            loop {
+                match list_ptr {
+                    Some(mut current_block) => {
+                        let current_block_ref = current_block.as_ref();
+
+                        if current_block_ref.size == new_layout.size() {
+                            potential_block = PotentialLocation::ExactFit(list_ptr as *mut _);
+                        } else if potential_block.is_none()
+                            && current_block_ref.size >= block_after_layout.size()
+                        {
+                            potential_block = PotentialLocation::WithBlock(list_ptr as *mut _);
+                        }
+                        #[allow(clippy::comparison_chain)]
+                        if current_block.as_ptr().cast() == next_block_addr {
+                            // we are the block directly after us!
+                            if current_block_ref.size + old_layout.size() == new_layout.size() {
+                                // we exactly fit
+                                // remove ourself from the free list
+                                *list_ptr = current_block_ref.next;
+                                return NonNull::new(ptr);
+                            } else if current_block_ref.size + old_layout.size()
+                                >= block_after_layout.size()
+                            {
+                                // we fit and there is space to create a new block
+                                // create a new block
+                                let split_block = Block {
+                                    size: current_block_ref.size - block_after_layout_offset,
+                                    next: current_block_ref.next,
+                                };
+                                // write the block to the correct location
+                                let split_ptr = current_block
+                                    .as_ptr()
+                                    .cast::<u8>()
+                                    .add(block_after_layout_offset)
+                                    .cast();
+                                *split_ptr = split_block;
+                                // update the list
+                                *list_ptr = NonNull::new(split_ptr).map(SendNonNull);
+
+                                return NonNull::new(ptr);
+                            } else if current_block_ref.next.is_none()
+                                && current_block_ref.size + current_block.as_ptr() as usize
+                                    == tip.as_ptr() as usize
+                            {
+                                // there are no blocks after the last block and the bump allocator can allocate at the end of that block
+                                // update list
+                                *list_ptr = current_block_ref.next;
+                                // calculate the layout that we need to request
+                                let difference = Layout::from_size_align(
+                                    new_layout.size() - old_layout.size() - current_block_ref.size,
+                                    8,
+                                )
+                                .expect("allocation shouldn't be too large");
+                                // request bytes
+                                let _ = self.inner_allocator.alloc_critical(difference, cs);
+                                // next area is the current pointer
+                                return NonNull::new(ptr);
+                            }
+                        } else if current_block.as_ptr().cast() > next_block_addr {
+                            match potential_block {
+                                PotentialLocation::None => {} // continue searching
+                                PotentialLocation::ExactFit(fit) => {
+                                    let fit = &mut *fit;
+                                    let current_block_ref = fit.unwrap().as_ref();
+                                    let p = fit.unwrap().as_ptr().cast::<u8>();
+                                    // copy ourselves to the location
+                                    *list_ptr = current_block_ref.next;
+                                    p.copy_from_nonoverlapping(ptr, old_layout.size());
+                                    return NonNull::new(p);
+                                }
+                                PotentialLocation::WithBlock(block_fit) => {
+                                    let block_fit = &mut *block_fit;
+                                    let current_block_ref = block_fit.unwrap().as_ref();
+                                    let p = block_fit.unwrap().as_ptr().cast::<u8>();
+
+                                    // create a new block
+                                    let split_block = Block {
+                                        size: current_block_ref.size - block_after_layout_offset,
+                                        next: current_block_ref.next,
+                                    };
+                                    // write the block to the correct location
+                                    let split_ptr = current_block
+                                        .as_ptr()
+                                        .cast::<u8>()
+                                        .add(block_after_layout_offset)
+                                        .cast();
+
+                                    *split_ptr = split_block;
+
+                                    // copy ourselves to the location
+                                    *list_ptr = NonNull::new(split_ptr).map(SendNonNull);
+                                    p.copy_from_nonoverlapping(ptr, old_layout.size());
+                                    return NonNull::new(p);
+                                }
+                            }
+                        }
+                        list_ptr = &mut current_block.as_mut().next;
+                    }
+                    None => {
+                        // reached the end of the list without finding what we
+                        // need, have to ask for more space from bump allocator
+
+                        let block = self.new_block(new_layout, cs);
+                        block?
+                            .as_ptr()
+                            .copy_from_nonoverlapping(ptr, old_layout.size());
+                        drop(state);
+                        self.dealloc(ptr, old_layout);
+                        return block;
+                    }
+                }
+            }
+        })
+    }
+
     pub unsafe fn dealloc_no_normalise(&self, ptr: *mut u8, layout: Layout) {
         let new_layout = Block::either_layout(layout).pad_to_align();
         free(|key| {
@@ -232,5 +400,20 @@ unsafe impl Allocator for BlockAllocator {
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         self.dealloc(ptr.as_ptr(), layout);
+    }
+
+    unsafe fn grow(
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+        match self.growth(ptr.as_ptr(), old_layout, new_layout.size()) {
+            None => Err(core::alloc::AllocError),
+            Some(p) => Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
+                p.as_ptr(),
+                new_layout.size(),
+            ))),
+        }
     }
 }

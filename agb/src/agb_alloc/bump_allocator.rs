@@ -26,6 +26,11 @@ impl BumpAllocator {
 }
 
 impl BumpAllocator {
+    pub fn current_tip_critical(&self, cs: CriticalSection) -> Option<NonNull<u8>> {
+        let ptr = *self.current_ptr.borrow(cs).borrow();
+        ptr.map(|x| x.0)
+    }
+
     pub fn alloc_critical(&self, layout: Layout, cs: CriticalSection) -> Option<NonNull<u8>> {
         let mut current_ptr = self.current_ptr.borrow(cs).borrow_mut();
 

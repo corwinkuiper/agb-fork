@@ -53,6 +53,15 @@ macro_rules! impl_zst_allocator {
             unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
                 $name_of_static.deallocate(ptr, layout)
             }
+
+            unsafe fn grow(
+                &self,
+                ptr: NonNull<u8>,
+                old_layout: Layout,
+                new_layout: Layout,
+            ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+                $name_of_static.grow(ptr, old_layout, new_layout)
+            }
         }
     };
 }
@@ -255,5 +264,13 @@ mod test {
             "address of allocation should be within iwram, instead at {:?}",
             p
         );
+    }
+
+    #[test_case]
+    fn allocate_grow(_gba: &mut crate::Gba) {
+        let mut a = Vec::new_in(ExternalAllocator);
+        for i in 0..10000 {
+            a.push(i);
+        }
     }
 }
