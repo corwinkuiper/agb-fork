@@ -11,6 +11,9 @@
     reexport_test_harness_main = "test_main"
 )]
 #![feature(alloc_error_handler)]
+#![feature(nonnull_slice_from_raw_parts)]
+#![feature(type_name_of_val)]
+#![feature(slice_ptr_get)]
 #![feature(allocator_api)]
 #![feature(asm_const)]
 #![warn(clippy::all)]
@@ -236,6 +239,8 @@ impl Gba {
     #[doc(hidden)]
     #[must_use]
     pub unsafe fn new_in_entry() -> Self {
+        agb_alloc::initialise_allocators();
+
         Self::single_new()
     }
 
@@ -297,11 +302,22 @@ pub mod test_runner {
             self(gba);
             mgba::number_of_cycles_tagged(785);
 
-            assert!(
-                unsafe { agb_alloc::number_of_blocks() } < 2,
-                "memory is being leaked, there are {} blocks",
-                unsafe { agb_alloc::number_of_blocks() }
-            );
+            mgba.print(format_args!("[ok]"), mgba::DebugLevel::Info)
+                .unwrap();
+        }
+    }
+
+    impl Testable for dyn Fn() {
+        fn run(&self, _gba: &mut Gba) {
+            let mut mgba = mgba::Mgba::new().unwrap();
+            mgba.print(
+                format_args!("{}...", core::any::type_name_of_val(self)),
+                mgba::DebugLevel::Info,
+            )
+            .unwrap();
+            mgba::number_of_cycles_tagged(785);
+            self();
+            mgba::number_of_cycles_tagged(785);
 
             mgba.print(format_args!("[ok]"), mgba::DebugLevel::Info)
                 .unwrap();

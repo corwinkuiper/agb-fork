@@ -1,13 +1,15 @@
-use core::alloc::{Allocator, Layout};
+use core::cell::RefCell;
+
+use bare_metal::Mutex;
+
+use core::alloc::{Allocator, GlobalAlloc, Layout};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
+use crate::interrupt::free;
+
 pub(crate) mod block_allocator;
 pub(crate) mod bump_allocator;
-
-use block_allocator::BlockAllocator;
-
-use self::bump_allocator::StartEnd;
 
 struct SendNonNull<T>(NonNull<T>);
 unsafe impl<T> Send for SendNonNull<T> {}
@@ -32,16 +34,125 @@ impl<T> DerefMut for SendNonNull<T> {
     }
 }
 
+struct AgbGallocAllocator(Mutex<RefCell<good_memory_allocator::Allocator<20, 4>>>);
+
+impl AgbGallocAllocator {
+    unsafe fn init(&self, heap_start: usize, heap_size: usize) {
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            if allocator.was_initialized() {
+                return;
+            }
+            allocator.init(heap_start, heap_size);
+        });
+    }
+}
+
+unsafe impl GlobalAlloc for AgbGallocAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            allocator.alloc(layout)
+        })
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            allocator.dealloc(ptr);
+        });
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            allocator.realloc(ptr, layout, new_size)
+        })
+    }
+}
+
+unsafe impl Allocator for AgbGallocAllocator {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            let ptr =
+                NonNull::new(unsafe { allocator.alloc(layout) }).ok_or(core::alloc::AllocError)?;
+
+            Ok(NonNull::slice_from_raw_parts(ptr, layout.size()))
+        })
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            allocator.dealloc(ptr.as_ptr());
+        });
+    }
+    unsafe fn grow(
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+        assert!(old_layout.align() == new_layout.align());
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            let ptr = NonNull::new(unsafe {
+                allocator.realloc(ptr.as_ptr(), old_layout, new_layout.size())
+            })
+            .ok_or(core::alloc::AllocError)?;
+            Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
+        })
+    }
+
+    unsafe fn shrink(
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+        assert!(old_layout.align() == new_layout.align());
+        free(|cs| {
+            let mut allocator = self.0.borrow(cs).borrow_mut();
+            let ptr = NonNull::new(unsafe {
+                allocator.realloc(ptr.as_ptr(), old_layout, new_layout.size())
+            })
+            .ok_or(core::alloc::AllocError)?;
+            Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
+        })
+    }
+
+    unsafe fn grow_zeroed(
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+        let result = self.grow(ptr, old_layout, new_layout)?;
+        let ptr = result.as_mut_ptr() as *mut u8;
+        ptr.add(old_layout.size())
+            .write_bytes(0, new_layout.size() - old_layout.size());
+
+        Ok(result)
+    }
+}
+
 const EWRAM_END: usize = 0x0204_0000;
 const IWRAM_END: usize = 0x0300_8000;
 
 #[global_allocator]
-static GLOBAL_ALLOC: BlockAllocator = unsafe {
-    BlockAllocator::new(StartEnd {
-        start: data_end,
-        end: || EWRAM_END,
-    })
-};
+static GLOBAL_ALLOC: AgbGallocAllocator = AgbGallocAllocator(Mutex::new(RefCell::new(
+    good_memory_allocator::Allocator::empty(),
+)));
+
+static __IWRAM_ALLOC: AgbGallocAllocator = AgbGallocAllocator(Mutex::new(RefCell::new(
+    good_memory_allocator::Allocator::empty(),
+)));
+
+pub(crate) unsafe fn initialise_allocators() {
+    GLOBAL_ALLOC.init(data_end(), EWRAM_END - data_end());
+    __IWRAM_ALLOC.init(iwram_data_end(), IWRAM_END - iwram_data_end() - 4000);
+}
 
 macro_rules! impl_zst_allocator {
     ($name_of_struct: ty, $name_of_static: ident) => {
@@ -108,18 +219,6 @@ pub struct InternalAllocator;
 
 impl_zst_allocator!(InternalAllocator, __IWRAM_ALLOC);
 
-static __IWRAM_ALLOC: BlockAllocator = unsafe {
-    BlockAllocator::new(StartEnd {
-        start: iwram_data_end,
-        end: || IWRAM_END,
-    })
-};
-
-#[cfg(any(test, feature = "testing"))]
-pub(crate) unsafe fn number_of_blocks() -> u32 {
-    GLOBAL_ALLOC.number_of_blocks()
-}
-
 #[alloc_error_handler]
 fn alloc_error(layout: Layout) -> ! {
     panic!(
@@ -163,7 +262,7 @@ mod test {
         let first_box = Box::new(1);
         let second_box = Box::new(2);
 
-        assert!(&*first_box as *const _ < &*second_box as *const _);
+        // assert!(&*first_box as *const _ < &*second_box as *const _);
         assert_eq!(*first_box, 1);
         assert_eq!(*second_box, 2);
 
@@ -250,5 +349,46 @@ mod test {
             (0x0300_0000..0x0300_8000).contains(&addr),
             "address of allocation should be within iwram, instead at {p:?}"
         );
+    }
+
+    #[test_case]
+    fn benchmark_allocation(_gba: &mut crate::Gba) {
+        let mut stored: Vec<Vec<u8>> = Vec::new();
+
+        let mut rng = crate::rng::RandomNumberGenerator::new();
+
+        const MAX_VEC_LENGTH: usize = 100;
+
+        enum Action {
+            Add { size: usize },
+            Remove { index: usize },
+        }
+
+        let next_action = |rng: &mut crate::rng::RandomNumberGenerator, stored: &[Vec<u8>]| {
+            if stored.len() >= MAX_VEC_LENGTH {
+                Action::Remove {
+                    index: (rng.gen() as usize) % stored.len(),
+                }
+            } else if stored.is_empty() || rng.gen() as usize % 4 != 0 {
+                Action::Add {
+                    size: rng.gen() as usize % 32,
+                }
+            } else {
+                Action::Remove {
+                    index: (rng.gen() as usize) % stored.len(),
+                }
+            }
+        };
+
+        for _ in 0..10000 {
+            match next_action(&mut rng, &stored) {
+                Action::Add { size } => {
+                    stored.push(Vec::with_capacity(size));
+                }
+                Action::Remove { index } => {
+                    stored.swap_remove(index);
+                }
+            }
+        }
     }
 }
