@@ -168,6 +168,7 @@ pub mod syscall;
 /// Interactions with the internal timers
 pub mod timer;
 
+mod lib_tests;
 mod no_game;
 
 /// Default game
