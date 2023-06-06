@@ -109,7 +109,8 @@ macro_rules! fixed_width_unsigned_integer_impl {
             fn from_as_i32(v: i32) -> Self {
                 v as $T
             }
-            #[inline(always)]
+            #[link_section = ".iwram.upcast"]
+            #[cfg_attr(not(doc), instruction_set(arm::a32))]
             fn upcast_multiply(a: Self, b: Self, n: usize) -> Self {
                 (((a as $Upcast) * (b as $Upcast)) >> n) as $T
             }
