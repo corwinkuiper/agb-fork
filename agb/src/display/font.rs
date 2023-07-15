@@ -38,7 +38,33 @@ impl FontLetter {
         }
     }
 
-    pub(crate) const fn bit_absolute(&self, x: usize, y: usize) -> bool {
+    #[must_use]
+    pub fn width(&self) -> u8 {
+        self.width
+    }
+
+    #[must_use]
+    pub fn height(&self) -> u8 {
+        self.height
+    }
+
+    #[must_use]
+    pub fn xmin(&self) -> i8 {
+        self.xmin
+    }
+
+    #[must_use]
+    pub fn ymin(&self) -> i8 {
+        self.ymin
+    }
+
+    #[must_use]
+    pub fn advance_width(&self) -> u8 {
+        self.advance_width
+    }
+
+    #[must_use]
+    pub const fn bit_absolute(&self, x: usize, y: usize) -> bool {
         let position = x + y * self.width as usize;
         let byte = self.data[position / 8];
         let bit = position % 8;
@@ -62,15 +88,18 @@ impl Font {
         }
     }
 
-    pub(crate) fn letter(&self, letter: char) -> &'static FontLetter {
+    #[must_use]
+    pub fn letter(&self, letter: char) -> &'static FontLetter {
         &self.letters[letter as usize]
     }
 
-    pub(crate) fn ascent(&self) -> i32 {
+    #[must_use]
+    pub fn ascent(&self) -> i32 {
         self.ascent
     }
 
-    pub(crate) fn line_height(&self) -> i32 {
+    #[must_use]
+    pub fn line_height(&self) -> i32 {
         self.line_height
     }
 }

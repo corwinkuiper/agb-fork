@@ -40,6 +40,12 @@ impl<'gba> CollisionField<'gba> {
     }
 }
 
+impl<'gba> CollisionField<'gba> {
+    pub fn bitmap(&mut self) -> &mut Bitmap3<'gba> {
+        &mut self.bitmap
+    }
+}
+
 impl CollisionField<'_> {
     fn read_pixel(&self, position: Vector2D<i32>) -> u16 {
         self.bitmap.read_point(position.x, position.y)
