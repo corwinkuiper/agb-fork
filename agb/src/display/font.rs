@@ -73,14 +73,14 @@ impl FontLetter {
 }
 
 pub struct Font {
-    letters: &'static [FontLetter],
+    letters: &'static [FontLetter; 128],
     line_height: i32,
     ascent: i32,
 }
 
 impl Font {
     #[must_use]
-    pub const fn new(letters: &'static [FontLetter], line_height: i32, ascent: i32) -> Self {
+    pub const fn new(letters: &'static [FontLetter; 128], line_height: i32, ascent: i32) -> Self {
         Self {
             letters,
             line_height,
@@ -90,7 +90,7 @@ impl Font {
 
     #[must_use]
     pub fn letter(&self, letter: char) -> &'static FontLetter {
-        &self.letters[letter as usize]
+        &self.letters[letter as usize & (128 - 1)]
     }
 
     #[must_use]
