@@ -61,16 +61,6 @@ impl CollisionField<'_> {
         }
     }
 
-    pub(crate) fn init_position(&mut self, position: Vector2D<i32>, colour: Colour) {
-        for pos in CIRCLE
-            .iter()
-            .map(|x| Vector2D::new(x.0, x.1))
-            .map(|x| x + position)
-        {
-            self.set_pixel(pos, colour.colour());
-        }
-    }
-
     pub(crate) fn update_position(
         &mut self,
         previous_position: Vector2D<i32>,

@@ -69,6 +69,7 @@ build-roms:
     just _build-rom "examples/the-hat-chooses-the-wizard" "HATWIZARD"
     just _build-rom "examples/hyperspace-roll" "HYPERSPACE"
     just _build-rom "examples/amplitude" "AMPLITUDE"
+    just _build-rom "examples/zaxax" "Zaxax!"
     just _build-rom "examples/combo" "AGBGAMES"
 
     just _build-rom "book/games/pong" "PONG"
