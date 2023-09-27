@@ -50,14 +50,14 @@ fn move_net_position_lr(idx: usize, direction: Tri) -> usize {
             if idx >= 4 {
                 2
             } else {
-                (idx + 1) % 3
+                (idx + 1) % 4
             }
         }
         Tri::Negative => {
             if idx >= 4 {
                 0
             } else {
-                idx.checked_sub(1).unwrap_or(2)
+                idx.checked_sub(1).unwrap_or(3)
             }
         }
     }
@@ -118,7 +118,7 @@ fn create_net<'a>(gfx: &'a OamManaged, die: &'_ Die, modified: &[usize]) -> Vec<
         objects.push(obj);
     }
 
-    for &m in modified.iter().chain(core::iter::once(&3)) {
+    for &m in modified.iter() {
         let mut obj = gfx.object_sprite(MODIFIED_BOX);
         let (x, y) = screen_position_for_index(m);
         obj.set_x((x - 32 / 2) as u16);

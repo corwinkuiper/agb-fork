@@ -27,6 +27,7 @@ mod battle;
 mod customise;
 mod graphics;
 mod level_generation;
+mod rng;
 mod save;
 mod sfx;
 
@@ -134,10 +135,10 @@ pub fn main(mut gba: agb::Gba) -> ! {
         faces: [
             Face::Shoot,
             Face::Shield,
-            Face::Blank,
-            Face::Malfunction,
-            Face::Blank,
-            Face::Blank,
+            Face::Shoot,
+            Face::Shoot,
+            Face::Shield,
+            Face::Shield,
         ],
     };
 
@@ -162,7 +163,7 @@ pub fn main(mut gba: agb::Gba) -> ! {
             dice: vec![basic_die.clone(); 2],
         };
 
-        let mut current_level = 1;
+        let mut current_level = 1000;
 
         agb.sfx.title_screen();
 

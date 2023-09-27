@@ -1,8 +1,6 @@
-use crate::level_generation::generate_enemy_health;
+use crate::level_generation::EnemyAi;
 use crate::sfx::Sfx;
-use crate::{
-    graphics::SELECT_BOX, level_generation::generate_attack, Agb, EnemyAttackType, Face, PlayerDice,
-};
+use crate::{graphics::SELECT_BOX, Agb, EnemyAttackType, Face, PlayerDice};
 use agb::display::tiled::{RegularMap, TiledMap};
 use agb::{hash_map::HashMap, input::Button};
 use alloc::vec;
@@ -342,6 +340,7 @@ struct EnemyState {
     shield_count: u32,
     health: u32,
     max_health: u32,
+    ai: EnemyAi,
 }
 
 #[derive(Debug)]
@@ -351,7 +350,6 @@ pub struct CurrentBattleState {
     rolled_dice: RolledDice,
     player_dice: PlayerDice,
     attacks: [Option<EnemyAttackState>; 2],
-    current_level: u32,
 }
 
 impl CurrentBattleState {
@@ -373,7 +371,7 @@ impl CurrentBattleState {
                     attack.take();
                     actions.push(action);
                 }
-            } else if let Some(generated_attack) = generate_attack(self.current_level) {
+            } else if let Some(generated_attack) = self.enemy.ai.next_move() {
                 attack.replace(EnemyAttackState {
                     attack: generated_attack.attack,
                     cooldown: generated_attack.cooldown,
@@ -500,7 +498,9 @@ pub(crate) fn battle_screen(
 
     let num_dice = player_dice.dice.len();
 
-    let enemy_health = generate_enemy_health(current_level);
+    let ai = EnemyAi::generate(current_level);
+
+    let enemy_health = ai.generate_max_health();
 
     let mut current_battle_state = CurrentBattleState {
         player: PlayerState {
@@ -512,6 +512,7 @@ pub(crate) fn battle_screen(
             shield_count: 0,
             health: enemy_health,
             max_health: enemy_health,
+            ai,
         },
         rolled_dice: RolledDice {
             rolls: player_dice
@@ -522,7 +523,6 @@ pub(crate) fn battle_screen(
         },
         player_dice: player_dice.clone(),
         attacks: [None, None],
-        current_level,
     };
 
     let mut battle_screen_display = BattleScreenDisplay::new(obj, &current_battle_state);

@@ -1,5 +1,4 @@
 use agb::display::object::{OamManaged, Object};
-use agb::rng;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -46,11 +45,11 @@ impl<'a> BattleScreenDisplay<'a> {
         let enemy_x = 167;
 
         let player_sprite = SHIP_SPRITES.sprite_for_ship(Ship::Player);
-        let enemy_sprite = SHIP_SPRITES.sprite_for_ship(if rng::gen() % 2 == 0 {
-            Ship::Drone
-        } else {
-            Ship::PilotedShip
-        });
+        let enemy_sprite =
+            SHIP_SPRITES.sprite_for_ship(match current_battle_state.enemy.ai.generate_ship() {
+                crate::level_generation::EnemyShip::Drone => Ship::Drone,
+                crate::level_generation::EnemyShip::Piloted => Ship::PilotedShip,
+            });
 
         let mut player_obj = obj.object_sprite(player_sprite);
         let mut enemy_obj = obj.object_sprite(enemy_sprite);
