@@ -237,6 +237,13 @@ where
 {
     type Output = Self;
     fn mul(self, rhs: Num<I, N>) -> Self::Output {
+        struct Check<T, const N: usize>(T);
+        impl<T, const N: usize> Check<T, N> {
+            const CHECK: () = assert!(N <= core::mem::size_of::<T>() * 4, "For multiplication, your precision cannot be greater than half of the size of the type");
+        }
+        #[allow(clippy::let_unit_value)]
+        let _ = Check::<I, N>::CHECK;
+
         Num(I::upcast_multiply(self.0, rhs.0, N))
     }
 }
