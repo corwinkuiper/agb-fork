@@ -176,7 +176,7 @@ pub type FixedNum<const N: usize> = Num<i32, N>;
 
 impl<I: FixedWidthUnsignedInteger, const N: usize> From<I> for Num<I, N> {
     fn from(value: I) -> Self {
-        Num(value << N)
+        Num::new(value)
     }
 }
 
@@ -237,12 +237,15 @@ where
 {
     type Output = Self;
     fn mul(self, rhs: Num<I, N>) -> Self::Output {
-        struct Check<T, const N: usize>(T);
-        impl<T, const N: usize> Check<T, N> {
-            const CHECK: () = assert!(N <= core::mem::size_of::<T>() * 4, "For multiplication, your precision cannot be greater than half of the size of the type");
+        struct Check<const N: usize>;
+        impl<const N: usize> Check<N> {
+            const CHECK: () = assert!(
+                N <= 16,
+                "The precision must be no greater than 16 to perform multiplication"
+            );
         }
         #[allow(clippy::let_unit_value)]
-        let _ = Check::<I, N>::CHECK;
+        let _ = Check::<N>::CHECK;
 
         Num(I::upcast_multiply(self.0, rhs.0, N))
     }
@@ -327,8 +330,15 @@ impl<I: FixedWidthSignedInteger, const N: usize> Neg for Num<I, N> {
 }
 
 impl<I: FixedWidthUnsignedInteger, const N: usize> Num<I, N> {
+    const NUM_VALIDITY_CHECK: () = assert!(
+        N < core::mem::size_of::<I>() * 8,
+        "The precision of the fixed precision number must be less than the size of the integer"
+    );
+
     /// Performs the conversion between two integer types and between two different fractional precisions
     pub fn change_base<J: FixedWidthUnsignedInteger + From<I>, const M: usize>(self) -> Num<J, M> {
+        let _ = Num::<J, M>::NUM_VALIDITY_CHECK;
+
         let n: J = self.0.into();
         if N < M {
             Num(n << (M - N))
@@ -352,6 +362,8 @@ impl<I: FixedWidthUnsignedInteger, const N: usize> Num<I, N> {
     pub fn try_change_base<J: FixedWidthUnsignedInteger + TryFrom<I>, const M: usize>(
         self,
     ) -> Option<Num<J, M>> {
+        let _ = Num::<J, M>::NUM_VALIDITY_CHECK;
+
         if size_of::<I>() > size_of::<J>() {
             // I bigger than J, perform the shift in I to preserve precision
             let n = if N < M {
@@ -375,6 +387,8 @@ impl<I: FixedWidthUnsignedInteger, const N: usize> Num<I, N> {
 
     /// A bit for bit conversion from a number to a fixed num
     pub const fn from_raw(n: I) -> Self {
+        let _ = Self::NUM_VALIDITY_CHECK;
+
         Num(n)
     }
 
@@ -464,6 +478,8 @@ impl<I: FixedWidthUnsignedInteger, const N: usize> Num<I, N> {
     /// assert_eq!(n, num!(5.)); // just equals the number 5
     /// ```
     pub fn new(integral: I) -> Self {
+        let _ = Self::NUM_VALIDITY_CHECK;
+
         Self(integral << N)
     }
 
@@ -471,6 +487,8 @@ impl<I: FixedWidthUnsignedInteger, const N: usize> Num<I, N> {
     #[inline(always)]
     /// Called by the [num!] macro in order to create a fixed point number
     pub fn new_from_parts(num: (i32, i32)) -> Self {
+        let _ = Self::NUM_VALIDITY_CHECK;
+
         Self(I::from_as_i32(((num.0) << N) + (num.1 >> (30 - N))))
     }
 }
@@ -1225,7 +1243,7 @@ mod tests {
         // some nice powers of two
         test_base::<8>();
         test_base::<4>();
-        test_base::<16>();
+        test_base::<15>();
         // not a power of two
         test_base::<10>();
         // an odd number
@@ -1236,7 +1254,7 @@ mod tests {
 
     #[test]
     fn check_cos_accuracy() {
-        let n: Num<i32, 8> = Num::new(1) / 32;
+        let n: Num<i32, 17> = Num::new(1) / 32;
         assert_eq!(
             n.cos(),
             Num::from_f64((2. * core::f64::consts::PI / 32.).cos())
