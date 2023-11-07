@@ -3,7 +3,7 @@ use std::{
     ops::Deref,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 
@@ -16,20 +16,6 @@ pub trait Resampler {
     fn len(&self) -> usize;
     fn write_sample(&mut self, sample: f64);
     fn read_sample(&mut self) -> Option<f64>;
-}
-
-pub struct Smoother {
-    inner: f64,
-}
-
-impl Smoother {
-    pub fn new(value: f64) -> Self {
-        Self { inner: value }
-    }
-    pub fn add(&mut self, value: f64) -> f64 {
-        self.inner = self.inner * 0.995 + value * 0.005;
-        self.inner
-    }
 }
 
 pub struct CubicResampler {

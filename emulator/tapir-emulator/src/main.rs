@@ -5,8 +5,7 @@ use std::{
 
 use anyhow::Context;
 use emulator::Emulator;
-use mgba::MCore;
-use resampler::{CubicResampler, SharedAudioQueue, Smoother};
+use resampler::SharedAudioQueue;
 use sdl2::{
     audio::AudioSpecDesired,
     event::Event,
@@ -14,8 +13,6 @@ use sdl2::{
     pixels::PixelFormatEnum,
     rect::{Point, Rect},
 };
-
-use crate::resampler::{calculate_dynamic_rate_ratio, Resampler};
 
 mod emulator;
 mod resampler;
