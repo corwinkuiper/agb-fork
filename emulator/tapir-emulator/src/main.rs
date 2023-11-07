@@ -1,7 +1,12 @@
-use std::{env, fs};
+use std::{
+    env, fs,
+    time::{Duration, Instant},
+};
 
 use anyhow::Context;
-use resampler::{CubicResampler, SharedAudioQueue};
+use emulator::Emulator;
+use mgba::MCore;
+use resampler::{CubicResampler, SharedAudioQueue, Smoother};
 use sdl2::{
     audio::AudioSpecDesired,
     event::Event,
@@ -12,6 +17,7 @@ use sdl2::{
 
 use crate::resampler::{calculate_dynamic_rate_ratio, Resampler};
 
+mod emulator;
 mod resampler;
 
 const GBA_FRAMES_PER_SECOND: f64 = 59.727500569606;
@@ -70,9 +76,6 @@ fn main() -> anyhow::Result<()> {
     let sdl_context = sdl2::init().unwrap();
 
     let rom_data = load_rom()?;
-    let mut mgba_core =
-        mgba::MCore::new().ok_or_else(|| anyhow::anyhow!("Failed to initialise mgba core"))?;
-    mgba_core.load_rom(mgba::MemoryBacked::new(rom_data));
 
     let video_subsystem = sdl_context
         .video()
@@ -122,23 +125,24 @@ fn main() -> anyhow::Result<()> {
 
     let audio_sample_rate = audio_queue.sample_rate() as f64;
 
-    let mut resamplers = [
-        CubicResampler::new(audio_sample_rate, audio_sample_rate),
-        CubicResampler::new(audio_sample_rate, audio_sample_rate),
-    ];
+    let mut core = Emulator::new(rom_data, audio_sample_rate)?;
 
     audio_system.resume();
 
-    let mut audio_buffer = vec![];
-    let audio_sample_rate = audio_system.spec().freq as f64;
-
-    mgba_core.set_audio_frequency(audio_sample_rate);
-
-    let scaling_option = ScalingOptions::PixelPerfect;
+    let mut scaling_option = ScalingOptions::Letterbox;
 
     let mut keys = 0;
 
+    let mut last_update_time = Instant::now() - Duration::new(0, (1e8 / 60.) as u32);
+
     'running: loop {
+        let update_time = {
+            let now = Instant::now();
+            let difference = now - last_update_time;
+            last_update_time = now;
+            difference.as_secs_f64()
+        };
+
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -150,6 +154,13 @@ fn main() -> anyhow::Result<()> {
                     scancode: Some(scancode),
                     ..
                 } => {
+                    if Scancode::RightBracket == scancode {
+                        scaling_option = match scaling_option {
+                            ScalingOptions::Stretch => ScalingOptions::Letterbox,
+                            ScalingOptions::Letterbox => ScalingOptions::PixelPerfect,
+                            ScalingOptions::PixelPerfect => ScalingOptions::Stretch,
+                        }
+                    }
                     if let Some(gba_keycode) = to_gba_keycode(scancode) {
                         keys |= 1 << gba_keycode as usize;
                     }
@@ -166,47 +177,11 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        mgba_core.set_keys(keys);
-        mgba_core.frame();
-
-        mgba_core.read_audio(&mut audio_buffer);
-
-        {
-            let queue_length = audio_queue.samples();
-            let ratio = calculate_dynamic_rate_ratio(800, queue_length, 0.005);
-
-            let rate = audio_sample_rate * ratio;
-
-            dbg!(ratio);
-            dbg!(rate);
-            dbg!(queue_length);
-
-            for resampler in resamplers.iter_mut() {
-                resampler.set_input_frequency(rate);
-            }
-
-            for sample in audio_buffer.chunks_exact(2) {
-                let sample_l = sample[0];
-                let sample_r = sample[1];
-                resamplers[0].write_sample(sample_l as f64);
-                resamplers[1].write_sample(sample_r as f64);
-            }
-
-            while let (Some(a), Some(b)) =
-                (resamplers[0].read_sample(), resamplers[1].read_sample())
-            {
-                audio_queue.push([a as i16, b as i16]);
-            }
-
-            audio_buffer.clear();
-        }
+        core.frame(keys, update_time, &audio_queue);
 
         texture
             .with_lock(None, |buffer, _pitch| {
-                let mgba_buffer = mgba_core.video_buffer();
-                for (i, data) in mgba_buffer.iter().enumerate() {
-                    buffer[(i * 4)..((i + 1) * 4)].copy_from_slice(&data.to_ne_bytes());
-                }
+                core.copy_video_buffer_to_texture(buffer);
             })
             .map_err(|e| anyhow::anyhow!("Failed to copy mgba texture {e}"))?;
 
@@ -246,7 +221,7 @@ fn to_gba_keycode(keycode: Scancode) -> Option<mgba::KeyMap> {
 fn load_rom() -> anyhow::Result<Vec<u8>> {
     let args: Vec<String> = env::args().collect();
 
-    let default = concat!(env!("CARGO_TARGET_DIR"), "/combo.gba").to_owned();
+    let default = concat!(env!("CARGO_TARGET_DIR"), "/hyperspace-roll.gba").to_owned();
     let filename = args.get(1).unwrap_or(&default); //.ok_or("Expected 1 argument".to_owned())?;
     let content =
         fs::read(filename).with_context(|| format!("Failed to open ROM file {filename}"))?;
