@@ -1,3 +1,4 @@
+mod arm_cpu_component;
 mod log;
 mod vfile;
 
@@ -7,6 +8,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use arm_cpu_component::{ArmCpuComponent, CpuComponent, InterruptCatcher};
 pub use log::{LogLevel, Logger};
 pub use vfile::{file::FileBacked, memory::MemoryBacked, shared::Shared, MapFlag, VFile};
 
@@ -39,6 +41,28 @@ pub fn set_global_default_logger(logger: &'static Logger) {
 }
 
 impl MCore {
+    pub fn plugin_component<T: CpuComponent>(&mut self, plugin_component: ArmCpuComponent<T>) {
+        unsafe {
+            let arm_cpu: *mut mgba_sys::ARMCore = (*self.core.as_ptr()).cpu.cast();
+
+            let component: *mut _ = ((*arm_cpu).components)
+                .add(mgba_sys::mCPUComponentType_CPU_COMPONENT_MISC_4 as usize);
+
+            if !(*component).is_null() {
+                mgba_sys::ARMHotplugDetach(
+                    arm_cpu,
+                    mgba_sys::mCPUComponentType_CPU_COMPONENT_MISC_4 as usize,
+                )
+            }
+
+            (*component) = plugin_component.into_mgba();
+            mgba_sys::ARMHotplugAttach(
+                arm_cpu,
+                mgba_sys::mCPUComponentType_CPU_COMPONENT_MISC_4 as usize,
+            );
+        }
+    }
+
     pub fn new() -> Option<Self> {
         if !GLOBAL_LOGGER_HAS_BEEN_INITIALISED.load(Ordering::SeqCst) {
             set_global_default_logger(&log::NO_LOGGER);
@@ -91,7 +115,7 @@ impl MCore {
             )
         }
 
-        let core_options = mgba_sys::mCoreOptions {
+        let core_options: mgba_sys::mCoreOptions = mgba_sys::mCoreOptions {
             volume: 0x100,
             useBios: true,
             ..Default::default()
@@ -100,7 +124,11 @@ impl MCore {
         unsafe { mgba_sys::mCoreConfigLoadDefaults(&mut (*core.as_ptr()).config, &core_options) };
         unsafe { mgba_sys::mCoreLoadConfig(core.as_ptr()) };
 
-        Some(MCore { core, video_buffer })
+        let mut core = MCore { core, video_buffer };
+
+        core.plugin_component(ArmCpuComponent::<InterruptCatcher>::new());
+
+        Some(core)
     }
 
     pub fn load_rom<V: VFile>(&mut self, vfile: V) {
