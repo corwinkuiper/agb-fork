@@ -8,7 +8,9 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use arm_cpu_component::{ArmCpuComponent, CpuComponent, InterruptCatcher};
+pub use arm_cpu_component::{
+    ArmCpuComponent, CpuComponent, Handshake, HandshakeInit, InterruptCatcher, InterruptCatcherInit,
+};
 pub use log::{LogLevel, Logger};
 pub use vfile::{file::FileBacked, memory::MemoryBacked, shared::Shared, MapFlag, VFile};
 
@@ -45,21 +47,7 @@ impl MCore {
         unsafe {
             let arm_cpu: *mut mgba_sys::ARMCore = (*self.core.as_ptr()).cpu.cast();
 
-            let component: *mut _ = ((*arm_cpu).components)
-                .add(mgba_sys::mCPUComponentType_CPU_COMPONENT_MISC_4 as usize);
-
-            if !(*component).is_null() {
-                mgba_sys::ARMHotplugDetach(
-                    arm_cpu,
-                    mgba_sys::mCPUComponentType_CPU_COMPONENT_MISC_4 as usize,
-                )
-            }
-
-            (*component) = plugin_component.into_mgba();
-            mgba_sys::ARMHotplugAttach(
-                arm_cpu,
-                mgba_sys::mCPUComponentType_CPU_COMPONENT_MISC_4 as usize,
-            );
+            arm_cpu_component::plugin_component(arm_cpu, plugin_component);
         }
     }
 
@@ -126,7 +114,24 @@ impl MCore {
 
         let mut core = MCore { core, video_buffer };
 
-        core.plugin_component(ArmCpuComponent::<InterruptCatcher>::new());
+        core.plugin_component(ArmCpuComponent::<Handshake<InterruptCatcher>>::new(
+            HandshakeInit::new(
+                0x04AA_F000,
+                0xABC,
+                0x123,
+                InterruptCatcherInit::new(|arm, interrupt| -> bool {
+                    match interrupt {
+                        0x55 => {
+                            let mut regs = arm.scratch_registers();
+                            regs[0] = 0x1234_5678;
+                            arm.set_scratch_registers(regs);
+                            true
+                        }
+                        _ => false,
+                    }
+                }),
+            ),
+        ));
 
         Some(core)
     }
