@@ -40,6 +40,7 @@ fn generate_bindings() -> MyError {
         .allowlist_type("mLogLevel")
         .allowlist_type("ARMCore")
         .allowlist_type("mCPUComponentType")
+        .allowlist_type("ARMInterruptHandler")
         .allowlist_var("MAP_WRITE")
         .allowlist_var("BYTES_PER_PIXEL")
         .allowlist_function("GBACoreCreate")
@@ -54,7 +55,8 @@ fn generate_bindings() -> MyError {
         .allowlist_function("mLogCategoryName")
         .allowlist_function("ARMHotplugAttach")
         .allowlist_function("ARMHotplugDetach")
-        .allowlist_type("ARMInterruptHandler")
+        .allowlist_function("GBAPatch32")
+        .allowlist_function("GBAView32")
         .generate_cstr(true)
         .derive_default(true)
         .clang_arg("-I./mgba/include")
@@ -72,11 +74,12 @@ fn compile() -> MyError {
         .define("M_CORE_GBA", "1")
         .define("M_CORE_GB", "0")
         .define("USE_DEBUGGERS", "1")
+        .define("BUILD_SHARED", "1")
         .build();
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-search=native={}", dst.display());
-    println!("cargo:rustc-link-lib=static=mgba");
+    println!("cargo:rustc-link-lib=dylib=mgba");
 
     Ok(())
 }

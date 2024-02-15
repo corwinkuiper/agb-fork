@@ -6,3 +6,4 @@
 #include "mgba/include/mgba/core/timing.h"
 #include "mgba/include/mgba/gba/core.h"
 #include "mgba/include/mgba/internal/arm/arm.h"
+#include "mgba/include/mgba/internal/gba/memory.h"
