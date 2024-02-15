@@ -119,7 +119,7 @@ impl MCore {
                 0x04AA_F000,
                 0xABC,
                 0x123,
-                InterruptCatcherInit::new(|arm, interrupt| -> bool {
+                InterruptCatcherInit::new(|mut arm, interrupt| -> bool {
                     match interrupt {
                         0x55 => {
                             let mut regs = arm.scratch_registers();

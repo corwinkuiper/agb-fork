@@ -1,4 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
+use std::marker::PhantomData;
+
 use libc::c_void;
 use mgba_sys::{mCPUComponent, ARMCore};
 
@@ -119,9 +121,9 @@ unsafe fn find_self<T: CpuComponent>(cpu: *mut ARMCore) -> Option<*mut T> {
     None
 }
 
-pub struct ArmCore(*mut ARMCore);
+pub struct ArmCore<'a>(*mut ARMCore, PhantomData<&'a mut ARMCore>);
 
-impl ArmCore {
+impl<'a> ArmCore<'a> {
     pub fn scratch_registers(&self) -> [u32; 4] {
         let mut destination: [u32; 4] = Default::default();
         for (&reg, dest) in unsafe { &(*self.0).__bindgen_anon_1.__bindgen_anon_1.gprs[0..4] }
@@ -308,7 +310,7 @@ unsafe extern "C" fn swi16(cpu: *mut ARMCore, immediate: i32) {
     let this = unsafe { find_self::<InterruptCatcher>(cpu) }
         .expect("for swi function to be active, interrupt handler needs to be active");
 
-    let mut core = ArmCore(cpu);
+    let core = ArmCore(cpu, PhantomData);
 
     // we need to be careful here as the cpu and this refer to eachother a fair
     // amount, interacting via raw pointers should be okay
@@ -316,7 +318,7 @@ unsafe extern "C" fn swi16(cpu: *mut ARMCore, immediate: i32) {
     // can dereference this as it is valid from guarentee of find_self.
     let on_swi = unsafe { &(*this).init.on_swi };
 
-    if !on_swi(&mut core, immediate as u32) {
+    if !on_swi(core, immediate as u32) {
         // safety: can call regular mgba function as it would be called anyway
         unsafe {
             (*this)
@@ -328,7 +330,7 @@ unsafe extern "C" fn swi16(cpu: *mut ARMCore, immediate: i32) {
 }
 
 pub struct InterruptCatcherInit {
-    on_swi: Box<dyn Fn(&mut ArmCore, u32) -> bool>,
+    on_swi: Box<dyn Fn(ArmCore, u32) -> bool>,
 }
 
 impl InterruptCatcherInit {
@@ -337,7 +339,7 @@ impl InterruptCatcherInit {
     /// called.
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(&mut ArmCore, u32) -> bool + 'static,
+        F: Fn(ArmCore, u32) -> bool + 'static,
     {
         let b = Box::new(f);
 
