@@ -75,9 +75,12 @@ extern "C" fn deinit_component<T: CpuComponent>(this: *mut mCPUComponent) {
 /// good state. As your drop won't be called with the arm core, you should store
 /// the arm core in order to clean it up.
 ///
+/// # Sealed
+/// * Note that this trait is sealed so can't be implemented externally.
+///
 /// # Safety
 /// * The ID for your trait should be *globally* unique.
-pub unsafe trait CpuComponent {
+pub unsafe trait CpuComponent: sealed::Sealed {
     const ID: u32;
 
     type InitParameters;
@@ -86,6 +89,12 @@ pub unsafe trait CpuComponent {
     /// * You must call this function with a valid pointer to an mgba arm core.
     /// * You must call the drop for this before newing up ANY OTHER component.
     unsafe fn new(cpu: *mut mgba_sys::ARMCore, parameters: Self::InitParameters) -> Self;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl<T: super::CpuComponent> Sealed for super::Handshake<T> {}
+    impl Sealed for super::InterruptCatcher {}
 }
 
 unsafe fn find_self<T: CpuComponent>(cpu: *mut ARMCore) -> Option<*mut T> {
