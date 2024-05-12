@@ -1,6 +1,6 @@
 import { ContentBlock } from "@/components/contentBlock";
+import { Redirect } from "@/components/redirect";
 import { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Dungeon Puzzler Redirect",
@@ -9,10 +9,9 @@ export const metadata: Metadata = {
 const REDIRECT_TO = "/showcase/the-dungeon-puzzlers-lament";
 
 export default function DplRedirectPage() {
-  redirect(REDIRECT_TO);
-
   return (
     <>
+      <Redirect url={REDIRECT_TO} />
       <ContentBlock>
         <h1>This page is a redirect to the Dungeon Puzzler</h1>
       </ContentBlock>
