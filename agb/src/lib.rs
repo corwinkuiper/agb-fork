@@ -182,6 +182,7 @@ pub mod syscall;
 /// Interactions with the internal timers
 pub mod timer;
 
+mod drawable;
 mod no_game;
 
 /// Default game
