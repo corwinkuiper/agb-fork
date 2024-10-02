@@ -13,7 +13,7 @@ WORKDIR /
 RUN git clone https://github.com/corwinkuiper/mgba.git --filter=tree:0 -b wasm
 RUN mkdir /mgba/build-wasm
 WORKDIR /mgba/build-wasm
-RUN git checkout 26a2701cef6fcad47c67559fcb7892004f8d489c
+RUN git checkout 3cf82e2c7b29dc122e89debe6d872f87757efa42
 
 
 RUN emcmake cmake .. && make install DESTDIR=install
