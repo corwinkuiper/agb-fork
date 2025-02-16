@@ -26,10 +26,6 @@ __agbabi_memcpy:
     .global __aeabi_memcpy
     .type __aeabi_memcpy, %function
 __aeabi_memcpy:
-    @ >6-bytes is roughly the threshold when byte-by-byte copy is slower
-    cmp     r2, #6
-    ble     __agbabi_memcpy1
-
     align_switch r0, r1, r3, __agbabi_memcpy1, .Lcopy_halves
 
     @ Check if r0 (or r1) needs word aligning
