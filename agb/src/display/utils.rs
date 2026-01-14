@@ -26,10 +26,19 @@
 /// assert_eq!(a[0], 0x81a3c5e7);
 /// # }
 /// ```
-pub fn blit_16_colour(target: &mut [u32], src: &[u32]) {
-    assert_eq!(target.len(), src.len());
+pub const fn blit_16_colour(target: &mut [u32], src: &[u32]) {
+    assert!(
+        target.len() == src.len(),
+        "Target and source must have the same length"
+    );
 
-    for (a, &b) in target.iter_mut().zip(src) {
+    let mut idx = 0;
+    let len = target.len();
+
+    while idx < len {
+        let a = &mut target[idx];
+        let b = src[idx];
+
         let hi = b & 0x8888_8888;
         let lo = b & 0x7777_7777;
 
@@ -37,6 +46,8 @@ pub fn blit_16_colour(target: &mut [u32], src: &[u32]) {
         let mask = set_nybbles * 0xf;
 
         *a = (*a & !mask) | b;
+
+        idx += 1;
     }
 }
 
@@ -66,10 +77,19 @@ pub fn blit_16_colour(target: &mut [u32], src: &[u32]) {
 /// assert_eq!(a[0], 0xabcdcdef);
 /// # }
 /// ```
-pub fn blit_256_colour(target: &mut [u32], src: &[u32]) {
-    assert_eq!(target.len(), src.len());
+pub const fn blit_256_colour(target: &mut [u32], src: &[u32]) {
+    assert!(
+        target.len() == src.len(),
+        "Target and source must have the same length"
+    );
 
-    for (a, &b) in target.iter_mut().zip(src) {
+    let mut idx = 0;
+    let len = target.len();
+
+    while idx < len {
+        let a = &mut target[idx];
+        let b = src[idx];
+
         let hi = b & 0x8080_8080;
         let lo = b & 0x7f7f_7f7f;
 
@@ -77,5 +97,28 @@ pub fn blit_256_colour(target: &mut [u32], src: &[u32]) {
         let mask = set_bytes * 0xff;
 
         *a = (*a & !mask) | b;
+
+        idx += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn blit_16_simple(_: &mut crate::Gba) {
+        let a = &mut [0x89abcdef];
+        let b = &[0x01030507];
+        blit_16_colour(a, b);
+        assert_eq!(a[0], 0x81a3c5e7);
+    }
+
+    #[test_case]
+    fn blit_256_simple(_: &mut crate::Gba) {
+        let a = &mut [0x89abcdef];
+        let b = &[0xabcd0000];
+        blit_256_colour(a, b);
+        assert_eq!(a[0], 0xabcdcdef);
     }
 }
