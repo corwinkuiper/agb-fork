@@ -148,6 +148,7 @@
 
 #![warn(missing_docs)]
 mod align;
+pub mod bake;
 mod layout;
 mod object;
 mod special;
@@ -216,6 +217,19 @@ impl FontLetter {
             0
         }
     }
+
+    pub(crate) const fn kerning_amount_const(&self, previous_char: char) -> i32 {
+        let mut i = 0;
+        while i < self.kerning_amounts.len() {
+            let x = self.kerning_amounts[i];
+            if x.0 == previous_char {
+                return x.1 as i32;
+            }
+            i += 1;
+        }
+
+        0
+    }
 }
 
 /// A font that was imported using the [`include_font`] macro.
@@ -260,13 +274,32 @@ impl Font {
         }
     }
 
-    pub(crate) fn ascent(&self) -> i32 {
+    pub(crate) const fn letter_const(&self, letter: char) -> &'static FontLetter {
+        let letter_u32 = letter as u32;
+
+        if letter_u32 >= 0x21 && letter_u32 < 0x7F {
+            return &self.ascii_letters[letter_u32 as usize - 0x21];
+        }
+
+        let mut idx = 0;
+        while idx < self.letters.len() {
+            let le = &self.letters[idx];
+            if le.character == letter {
+                return le;
+            }
+            idx += 1;
+        }
+
+        &self.ascii_letters[0]
+    }
+
+    pub(crate) const fn ascent(&self) -> i32 {
         self.ascent
     }
 
     #[must_use]
     /// The height of a line for this font
-    pub fn line_height(&self) -> i32 {
+    pub const fn line_height(&self) -> i32 {
         self.line_height
     }
 }
