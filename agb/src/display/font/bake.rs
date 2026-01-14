@@ -14,18 +14,18 @@ macro_rules! bake {
         use $crate::display::font::bake::*;
         const THIS_FONT: &Font = &$font;
         const THIS_TEXT: &str = $text;
-        const TILE_SIZE: (usize, usize) = const {
+        const TILE_SIZE: (usize, usize, usize) = const {
             let length = calculate_length(THIS_FONT, THIS_TEXT);
             let height = calculate_height(THIS_FONT, THIS_TEXT);
 
             let tile_length = length.div_ceil(8);
             let tile_height = height.div_ceil(8);
 
-            (tile_length as usize, tile_height as usize)
+            (tile_length as usize, tile_height as usize, length as usize)
         };
         const NUMBER_OF_U32S: usize = const { TILE_SIZE.0 * TILE_SIZE.1 * 8 };
 
-        const TILES: &[u32] = &const {
+        static TILES: &[u32] = &const {
             let mut tiles = [0; NUMBER_OF_U32S];
 
             let mut tiles_collection = TileCollection::new(&mut tiles, TILE_SIZE.0 as usize);
@@ -35,7 +35,7 @@ macro_rules! bake {
             tiles
         };
 
-        const { BakedText::new(TILES, TILE_SIZE.0, TILE_SIZE.1) }
+        const { BakedText::new(TILES, TILE_SIZE.0, TILE_SIZE.1, TILE_SIZE.2) }
     }};
 }
 
@@ -253,6 +253,7 @@ pub const fn bake_inner(font: &Font, text: &str, tiles: &mut TileCollection) {
 
 pub struct BakedText {
     width: usize,
+    width_pixels: usize,
     height: usize,
     tiles: &'static [u32],
 }
@@ -262,11 +263,17 @@ const fn cast_u32_to_bytes(a: &[u32]) -> &[u8] {
 }
 
 impl BakedText {
-    pub const fn new(tiles: &'static [u32], width: usize, height: usize) -> Self {
+    pub const fn new(
+        tiles: &'static [u32],
+        width: usize,
+        height: usize,
+        width_pixels: usize,
+    ) -> Self {
         Self {
             width,
             height,
             tiles,
+            width_pixels,
         }
     }
 
@@ -287,11 +294,15 @@ impl BakedText {
         }
     }
 
-    pub const fn width(&self) -> usize {
+    pub const fn width_tiles(&self) -> usize {
         self.width
     }
 
-    pub const fn height(&self) -> usize {
+    pub const fn width_pixels(&self) -> usize {
+        self.width_pixels
+    }
+
+    pub const fn height_tiles(&self) -> usize {
         self.height
     }
 
