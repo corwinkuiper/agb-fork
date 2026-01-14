@@ -1,3 +1,5 @@
+use core::str;
+
 use agb_fixnum::{Vector2D, vec2};
 
 use crate::display::{
@@ -37,9 +39,76 @@ macro_rules! bake {
     }};
 }
 
+struct Chars<'a> {
+    text: &'a str,
+}
+
+const fn str_to_char(s: &str) -> char {
+    const CONTINUATION_MASK: u32 = 0b00111111;
+
+    let code_point = match *s.as_bytes() {
+        [a] => a as u32,
+        [a, b] => ((a as u32 & 0b00011111) << 6) | (b as u32 & CONTINUATION_MASK),
+        [a, b, c] => {
+            ((a as u32 & 0b00001111) << 12)
+                | ((b as u32 & CONTINUATION_MASK) << 6)
+                | (c as u32 & CONTINUATION_MASK)
+        }
+        [a, b, c, d] => {
+            ((a as u32 & 0b00000111) << 18)
+                | ((b as u32 & CONTINUATION_MASK) << 12)
+                | ((c as u32 & CONTINUATION_MASK) << 6)
+                | (d as u32 & CONTINUATION_MASK)
+        }
+        _ => panic!("Str is not a char"),
+    };
+
+    char::from_u32(code_point).expect("conversion should be correct")
+}
+
+impl<'a> Chars<'a> {
+    const fn new(text: &'a str) -> Self {
+        Self { text }
+    }
+
+    const fn next(&mut self) -> Option<char> {
+        if self.text.is_empty() {
+            return None;
+        }
+
+        let mut idx = 1;
+        while !self.text.is_char_boundary(idx) {
+            idx += 1;
+        }
+
+        let (c, rest) = &self.text.split_at(idx);
+
+        self.text = rest;
+
+        Some(str_to_char(c))
+    }
+
+    const fn next_back(&mut self) -> Option<char> {
+        if self.text.is_empty() {
+            return None;
+        }
+
+        let mut idx = self.text.len() - 1;
+        while !self.text.is_char_boundary(idx) {
+            idx -= 1;
+        }
+
+        let (rest, c) = &self.text.split_at(idx);
+
+        self.text = rest;
+
+        Some(str_to_char(c))
+    }
+}
+
 pub const fn calculate_length(font: &Font, text: &str) -> u32 {
     let mut previous_character = None;
-    let mut chars = konst::string::chars(text);
+    let mut chars = Chars::new(text);
     let mut width = 0;
     while let Some(c) = chars.next() {
         // rust analyzer gets this type wrong, so for now do this up here so I can have correct hints elsewhere
@@ -64,7 +133,7 @@ pub const fn calculate_length(font: &Font, text: &str) -> u32 {
         width += l.advance_width as i32 + kern;
     }
 
-    let mut chars = konst::string::chars(text);
+    let mut chars = Chars::new(text);
 
     while let Some(c) = chars.next_back() {
         let c: char = c;
@@ -86,7 +155,7 @@ pub const fn calculate_length(font: &Font, text: &str) -> u32 {
 }
 
 pub const fn calculate_height(font: &Font, text: &str) -> u32 {
-    let mut chars = konst::string::chars(text);
+    let mut chars = Chars::new(text);
     let mut height = i32::MIN;
     while let Some(c) = chars.next() {
         let c: char = c;
@@ -117,7 +186,7 @@ impl<'a> TileCollection<'a> {
             || y < 0
             || y > ((self.tiles.len() / self.width_tiles) as i32)
         {
-            konst::const_panic::concat_panic!("Pixel out of bounds: ", x, " ", y,);
+            panic!("Pixel out of bounds");
         }
 
         let x = x as usize;
@@ -136,7 +205,7 @@ impl<'a> TileCollection<'a> {
 
 pub const fn bake_inner(font: &Font, text: &str, tiles: &mut TileCollection) {
     let mut previous_character = None;
-    let mut chars = konst::string::chars(text);
+    let mut chars = Chars::new(text);
 
     let mut cursor = 0;
     let mut colour = 1;
