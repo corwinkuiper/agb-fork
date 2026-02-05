@@ -29,7 +29,7 @@
 //! #     fn update(&mut self) {
 //! #         // update the game state
 //! #     }
-//! #     
+//! #
 //! #     fn show(&self, frame: &mut GraphicsFrame) {
 //! #         // do all the showing of things on screen
 //! #     }
@@ -88,6 +88,8 @@ mod affine;
 pub use affine::AffineMatrix;
 mod blend;
 mod window;
+
+mod ui;
 
 pub mod font;
 
