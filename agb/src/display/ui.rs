@@ -1,6 +1,11 @@
 use agb_fixnum::{Rect, Vector2D, vec2};
 
-use crate::display::{tile_data::TileData, tiled::RegularBackground};
+use crate::display::{
+    tile_data::TileData,
+    tiled::{DynamicTile16, DynamicTile256, RegularBackground},
+};
+
+use super::tiled::TileFormat;
 
 pub struct UiRectangle<'background> {
     tiles: &'static TileData,
@@ -36,6 +41,52 @@ impl<'background> UiRectangle<'background> {
             tiles,
             background,
             rectangle,
+        }
+    }
+
+    fn get_tile(&self, position: Vector2D<i32>) -> usize {
+        if self.rectangle.size.x == 1 {
+            if position.y == 0 {
+                TOP_CORNER
+            } else if position.y == self.rectangle.size.y - 1 {
+                BOTTOM_CORNER
+            } else {
+                VERTICAL
+            }
+        } else if self.rectangle.size.y == 1 {
+            if position.x == 0 {
+                LEFT_CORNER
+            } else if position.x == self.rectangle.size.x - 1 {
+                RIGHT_CORNER
+            } else {
+                HORIZONTAL
+            }
+        } else {
+            if position.x == 0 {
+                if position.y == 0 {
+                    TOP_LEFT_CORNER
+                } else if position.y == self.rectangle.size.y - 1 {
+                    BOTTOM_LEFT_CORNER
+                } else {
+                    LEFT_EDGE
+                }
+            } else if position.x == self.rectangle.size.x - 1 {
+                if position.y == 0 {
+                    TOP_RIGHT_CORNER
+                } else if position.y == self.rectangle.size.y - 1 {
+                    BOTTOM_RIGHT_CORNER
+                } else {
+                    RIGHT_EDGE
+                }
+            } else {
+                if position.y == 0 {
+                    TOP_EDGE
+                } else if position.y == self.rectangle.size.y - 1 {
+                    BOTTOM_EDGE
+                } else {
+                    CENTRE
+                }
+            }
         }
     }
 
@@ -137,6 +188,51 @@ impl<'background> UiRectangle<'background> {
 
         self
     }
+
+    pub fn draw_image(&mut self, position: Vector2D<i32>, tile: &[u32]) -> &mut Self {
+        let inner_tile_idx = self.get_tile(position);
+        let inner_tile = self.tiles.tiles.get_tile_data(inner_tile_idx as u16);
+        match self.background.tile_format() {
+            TileFormat::FourBpp => {
+                let mut dynamic = DynamicTile16::new();
+                dynamic.data_mut().copy_from_slice(inner_tile);
+                agb::display::utils::blit_16_colour(dynamic.data_mut(), tile);
+                self.background.set_tile_dynamic16(
+                    position + self.rectangle.position,
+                    &dynamic,
+                    *self.tiles.tile_settings[inner_tile_idx]
+                        .clone()
+                        .tile_effect(),
+                );
+            }
+            TileFormat::EightBpp => {
+                let mut dynamic = DynamicTile256::new();
+                dynamic.data_mut().copy_from_slice(inner_tile);
+                agb::display::utils::blit_256_colour(dynamic.data_mut(), tile);
+                self.background.set_tile_dynamic256(
+                    position + self.rectangle.position,
+                    &dynamic,
+                    *self.tiles.tile_settings[inner_tile_idx]
+                        .clone()
+                        .tile_effect(),
+                );
+            }
+        }
+
+        self
+    }
+
+    pub fn draw_tileset(&mut self, position: Vector2D<i32>, tiledata: &TileData) -> &mut Self {
+        for y in 0..tiledata.height as i32 {
+            for x in 0..tiledata.width as i32 {
+                let setting = tiledata.tile_settings[x as usize + y as usize * tiledata.height];
+                let tile = tiledata.tiles.get_tile_data(setting.tile_id());
+                self.draw_image(position + vec2(x, y), tile);
+            }
+        }
+
+        self
+    }
 }
 
 #[cfg(test)]
@@ -153,7 +249,7 @@ mod tests {
         test_runner::assert_image_output,
     };
 
-    include_background_gfx!(mod ui, UI => "gfx/ui.aseprite");
+    include_background_gfx!(mod ui, UI => "gfx/ui.aseprite", CRAB => "examples/gfx/crab.aseprite");
 
     #[test_case]
     fn check_basic_ui(gba: &mut crate::Gba) {
@@ -173,5 +269,32 @@ mod tests {
         bg.show(&mut frame);
         frame.commit();
         assert_image_output("gfx/test_output/ui/basic.png");
+    }
+
+    #[test_case]
+    fn check_crab_overlay(gba: &mut crate::Gba) {
+        VRAM_MANAGER.set_background_palettes(ui::PALETTES);
+        let mut graphics = gba.graphics.get();
+        let mut frame = graphics.frame();
+        let mut bg = RegularBackground::new(
+            Priority::P0,
+            RegularBackgroundSize::Background32x32,
+            TileFormat::FourBpp,
+        );
+
+        UiRectangle::new(
+            Rect::new(
+                vec2(2, 2),
+                vec2(ui::CRAB.width as i32, ui::CRAB.height as i32),
+            ),
+            &ui::UI,
+            &mut bg,
+        )
+        .draw()
+        .draw_tileset(vec2(0, 0), &ui::CRAB);
+
+        bg.show(&mut frame);
+        frame.commit();
+        assert_image_output("gfx/test_output/ui/crab_overlay.png");
     }
 }
