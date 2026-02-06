@@ -242,6 +242,11 @@ impl RegularBackground {
         self
     }
 
+    /// Returns the colour format of this background.
+    pub fn tile_format(&self) -> TileFormat {
+        self.tiles.colours()
+    }
+
     /// Sets a tile at the given position to the given [`DynamicTile256`] / [`TileEffect`] combination.
     ///
     /// This only works on a [256 colour background](TileFormat::EightBpp).
