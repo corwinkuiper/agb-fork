@@ -39,3 +39,43 @@ pub fn blit_16_colour(target: &mut [u32], src: &[u32]) {
         *a = (*a & !mask) | b;
     }
 }
+
+/// Copies the content of `src` into `target` but skipping transparent pixels.
+///
+/// Assumes 1 pixel is 1 byte, so useful for copying into 8-bit dynamic tile
+/// like in [`DynamicTile256`](crate::display::tiled::DynamicTile256) or
+/// [`DynamicSprite256`](crate::display::object::DynamicSprite256).
+///
+/// Normally you shouldn't need to use this method, as you should be using
+/// [`Object`s](crate::display::object::Object) or backgrounds. Only use this
+/// if you specifically need dynamic sprites or tiles.
+///
+/// # Examples
+///
+/// ```
+/// # #![no_main]
+/// # #![no_std]
+/// # #[agb::doctest]
+/// # fn test(_: agb::Gba) {
+/// use agb::display::utils::blit_256_colour;
+///
+/// let a = &mut [0x89abcdef];
+/// let b = &[0xabcd0000];
+///
+/// blit_256_colour(a, b);
+/// assert_eq!(a[0], 0xabcdcdef);
+/// # }
+/// ```
+pub fn blit_256_colour(target: &mut [u32], src: &[u32]) {
+    assert_eq!(target.len(), src.len());
+
+    for (a, &b) in target.iter_mut().zip(src) {
+        let hi = b & 0x8080_8080;
+        let lo = b & 0x7f7f_7f7f;
+
+        let set_bytes = (hi | ((lo + 0x7f7f_7f7f) & 0x8080_8080)) >> 7;
+        let mask = set_bytes * 0xff;
+
+        *a = (*a & !mask) | b;
+    }
+}
