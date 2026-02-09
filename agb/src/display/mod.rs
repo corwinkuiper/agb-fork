@@ -89,7 +89,7 @@ pub use affine::AffineMatrix;
 mod blend;
 mod window;
 
-mod ui;
+pub mod ui;
 
 pub mod font;
 

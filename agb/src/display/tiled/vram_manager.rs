@@ -7,7 +7,7 @@ use tile_allocator::TileAllocator;
 mod tile_allocator;
 
 use crate::{
-    display::{Palette16, Rgb15},
+    display::{Palette16, Rgb15, utils::cast_bytes_to_u32},
     dma,
     hash_map::{Entry, HashMap},
     memory_mapped::MemoryMapped1DArray,
@@ -70,16 +70,22 @@ impl TileSet {
         self.format
     }
 
+    /// Returns the raw tile data.
+    #[must_use]
+    pub const fn tiles(&self) -> &'static [u32] {
+        // SAFETY: Guarenteed to be aligned by constructor
+        unsafe { cast_bytes_to_u32(self.tiles) }
+    }
+
     /// Gets the raw tile data for a given `tile_id`.
     ///
     /// If you have deduplicated the [`TileSet`], then make sure you use the `tile_id` provided by
     /// the [`TileSetting::tile_id()`](agb::display::tiled::TileSetting::tile_id) method.
     #[must_use]
-    pub fn get_tile_data(&self, tile_id: u16) -> &'static [u32] {
+    pub const fn get_tile_data(&self, tile_id: u16) -> &'static [u32] {
         assert!(
             tile_id as usize * self.format.tile_size() < self.tiles.len(),
-            "{tile_id} is too big for this tileset ({} tiles)",
-            self.tiles.len() / self.format.tile_size()
+            "is too big for this tileset",
         );
 
         let tile_id = tile_id as usize;

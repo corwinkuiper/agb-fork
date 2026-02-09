@@ -102,6 +102,27 @@ pub const fn blit_256_colour(target: &mut [u32], src: &[u32]) {
     }
 }
 
+/// Converts a slice of `u32` values into a slice of `u8` values.
+///
+/// This function provides a way to reinterpret a slice of 32-bit values
+/// as a slice of 8-bit values, without copying the data.
+pub const fn cast_u32_to_bytes(a: &[u32]) -> &[u8] {
+    unsafe { core::slice::from_raw_parts(a.as_ptr().cast(), a.len() * 4) }
+}
+
+/// Converts a slice of `u8` values into a slice of `u32` values.
+///
+/// This function provides a way to reinterpret a slice of 8-bit values
+/// as a slice of 32-bit values, without copying the data.
+///
+/// # Safety
+///
+/// * The caller must guarantee that the length of `a` is a multiple of 4.
+/// * The caller must guarantee that the slice `a` is 4-byte aligned.
+pub const unsafe fn cast_bytes_to_u32(a: &[u8]) -> &[u32] {
+    unsafe { core::slice::from_raw_parts(a.as_ptr().cast(), a.len() / 4) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

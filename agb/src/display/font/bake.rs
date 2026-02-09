@@ -1,21 +1,30 @@
 use core::str;
 
-use agb_fixnum::{Vector2D, vec2};
-
-use crate::display::{
-    font::{Font, special::AGB_PRIVATE_USE_RANGE},
-    tiled::{RegularBackground, TileEffect, TileSet, TileSetting},
-};
+use crate::display::font::{AlignmentKind, Font, FontLetter, special::AGB_PRIVATE_USE_RANGE};
 
 #[macro_export]
 macro_rules! bake {
-    ($font: expr, $text: expr) => {{
+    ($font: expr, $text: expr) => {
+        $crate::bake!(
+            $font,
+            $text,
+            $crate::display::font::bake::BakeSettings::new()
+        )
+    };
+    ($font: expr, $text: expr, $settings: expr) => {{
         use $crate::display::font::Font;
         use $crate::display::font::bake::*;
+        use $crate::display::tile_data::TileData;
+        use $crate::display::tiled::{TileEffect, TileFormat, TileSet, TileSetting};
+        use $crate::display::utils::*;
+
+        const SETTINGS: BakeSettings = $settings;
+
         const THIS_FONT: &Font = &$font;
         const THIS_TEXT: &str = $text;
         const TILE_SIZE: (usize, usize, usize) = const {
-            let length = calculate_length(THIS_FONT, THIS_TEXT);
+            let length = calculate_length(THIS_FONT, THIS_TEXT)
+                + if SETTINGS.backdrop().is_some() { 1 } else { 0 };
             let height = calculate_height(THIS_FONT, THIS_TEXT);
 
             let tile_length = length.div_ceil(8);
@@ -23,24 +32,117 @@ macro_rules! bake {
 
             (tile_length as usize, tile_height as usize, length as usize)
         };
+        const NUMBER_OF_TILES: usize = const { TILE_SIZE.0 * TILE_SIZE.1 };
         const NUMBER_OF_U32S: usize = const { TILE_SIZE.0 * TILE_SIZE.1 * 8 };
 
         static TILES: &[u32] = &const {
             let mut tiles = [0; NUMBER_OF_U32S];
 
-            let mut tiles_collection = TileCollection::new(&mut tiles, TILE_SIZE.0 as usize);
+            let mut tiles_collection =
+                TileCollection::new(&mut tiles, TILE_SIZE.0 as usize, TILE_SIZE.2);
 
-            bake_inner(THIS_FONT, THIS_TEXT, &mut tiles_collection);
+            bake_inner(THIS_FONT, THIS_TEXT, &mut tiles_collection, &SETTINGS);
 
             tiles
         };
 
-        const { BakedText::new(TILES, TILE_SIZE.0, TILE_SIZE.1, TILE_SIZE.2) }
+        const TILE_EFFECT: TileEffect = const { TileEffect::new(false, false, 0) };
+
+        static TILE_SETTINGS: &[TileSetting] = &const {
+            let mut tiles = [const { TileSetting::new(0, TILE_EFFECT) }; NUMBER_OF_TILES];
+
+            let mut idx = 0;
+            while idx < NUMBER_OF_TILES {
+                tiles[idx] = TileSetting::new(idx as u16, TILE_EFFECT);
+                idx += 1;
+            }
+
+            tiles
+        };
+
+        &const {
+            TileData::new(
+                unsafe { TileSet::new(cast_u32_to_bytes(TILES), TileFormat::FourBpp) },
+                TILE_SETTINGS,
+                TILE_SIZE.0,
+                TILE_SIZE.1,
+            )
+        }
     }};
+}
+
+pub struct BakeSettings {
+    colours: [u8; 16],
+    backdrop: Option<u8>,
+    background: u8,
+    alignment: AlignmentKind,
+}
+
+impl BakeSettings {
+    pub const fn new() -> BakeSettings {
+        let colours = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+        BakeSettings {
+            colours,
+            backdrop: None,
+            background: 0,
+            alignment: AlignmentKind::Left,
+        }
+    }
+
+    pub const fn with_colours(mut self, colours: &[u8]) -> BakeSettings {
+        let mut idx = 0;
+        while idx < colours.len() {
+            self.colours[idx + 1] = colours[idx];
+            idx += 1;
+        }
+
+        self
+    }
+
+    pub const fn with_background(mut self, background_idx: u8) -> BakeSettings {
+        self.background = background_idx;
+        self
+    }
+
+    pub const fn with_backdrop(mut self, backdrop_idx: u8) -> BakeSettings {
+        self.backdrop = Some(backdrop_idx);
+
+        self
+    }
+
+    pub const fn with_alignment(mut self, alignment: AlignmentKind) -> BakeSettings {
+        self.alignment = alignment;
+
+        self
+    }
+
+    pub const fn backdrop(&self) -> Option<u8> {
+        self.backdrop
+    }
 }
 
 struct Chars<'a> {
     text: &'a str,
+}
+
+const fn pixel_width(letter: &FontLetter) -> i32 {
+    let mut max_x = 0;
+
+    let mut y = 0;
+    while y < letter.height as i32 {
+        let mut x = max_x;
+        while x < letter.width as i32 {
+            if letter.bit_absolute(x as usize, y as usize) {
+                max_x = x + 1;
+                break;
+            }
+            x += 1;
+        }
+        y += 1;
+    }
+
+    max_x
 }
 
 const fn str_to_char(s: &str) -> char {
@@ -111,7 +213,6 @@ pub const fn calculate_length(font: &Font, text: &str) -> u32 {
     let mut chars = Chars::new(text);
     let mut width = 0;
     while let Some(c) = chars.next() {
-        // rust analyzer gets this type wrong, so for now do this up here so I can have correct hints elsewhere
         let c: char = c;
         let l = font.letter_const(c);
         let kern = if let Some(previous) = previous_character {
@@ -143,10 +244,8 @@ pub const fn calculate_length(font: &Font, text: &str) -> u32 {
 
         let l = font.letter_const(c);
 
-        let difference = l.xmin as i32 + l.width as i32 - l.advance_width as i32;
-        if difference > 0 {
-            width += difference;
-        }
+        width -= l.advance_width as i32;
+        width += l.xmin as i32 + pixel_width(l);
 
         break;
     }
@@ -173,20 +272,40 @@ pub const fn calculate_height(font: &Font, text: &str) -> u32 {
 pub struct TileCollection<'a> {
     tiles: &'a mut [u32],
     width_tiles: usize,
+    width_pixels: usize,
 }
 
 impl<'a> TileCollection<'a> {
-    pub const fn new(tiles: &'a mut [u32], width_tiles: usize) -> Self {
-        Self { tiles, width_tiles }
+    pub const fn new(tiles: &'a mut [u32], width_tiles: usize, width_pixels: usize) -> Self {
+        Self {
+            tiles,
+            width_tiles,
+            width_pixels,
+        }
     }
 
-    const fn set_pixel(&mut self, x: i32, y: i32, colour: u32) {
+    const fn fill(&mut self, colour: u8) {
+        let colour = colour as u32;
+        let colour = colour | colour << 4;
+        let colour = colour | colour << 8;
+        let colour = colour | colour << 16;
+
+        let mut idx = 0;
+        while idx < self.tiles.len() {
+            self.tiles[idx] = colour;
+            idx += 1;
+        }
+    }
+
+    const fn set_pixel(&mut self, x: i32, y: i32, colour: u8) -> Option<()> {
+        let colour = colour as u32;
+
         if x < 0
-            || x > (self.width_tiles as i32 * 8)
+            || x >= (self.width_tiles as i32 * 8)
             || y < 0
-            || y > ((self.tiles.len() / self.width_tiles) as i32)
+            || y >= ((self.tiles.len() / self.width_tiles) as i32)
         {
-            panic!("Pixel out of bounds");
+            return None;
         }
 
         let x = x as usize;
@@ -200,14 +319,27 @@ impl<'a> TileCollection<'a> {
         let mask = 0xF << (x_pixel * 4);
         let idx = (x_tile + y_tile * self.width_tiles) * 8 + y_pixel;
         self.tiles[idx] = (self.tiles[idx] & !mask) | (colour << (x_pixel * 4));
+
+        Some(())
     }
 }
 
-pub const fn bake_inner(font: &Font, text: &str, tiles: &mut TileCollection) {
+pub const fn bake_inner(
+    font: &Font,
+    text: &str,
+    tiles: &mut TileCollection,
+    settings: &BakeSettings,
+) {
     let mut previous_character = None;
     let mut chars = Chars::new(text);
 
-    let mut cursor = 0;
+    tiles.fill(settings.background);
+
+    let mut cursor = match settings.alignment {
+        AlignmentKind::Left | AlignmentKind::None | AlignmentKind::Justify => 0,
+        AlignmentKind::Right => tiles.width_pixels % 8,
+        AlignmentKind::Centre => (tiles.width_pixels % 8).div_ceil(2),
+    } as i32;
     let mut colour = 1;
 
     while let Some(c) = chars.next() {
@@ -239,7 +371,14 @@ pub const fn bake_inner(font: &Font, text: &str, tiles: &mut TileCollection) {
             let mut x = 0;
             while x < l.width as i32 {
                 if l.bit_absolute(x as usize, y as usize) {
-                    tiles.set_pixel(x_start + x, y_start + y, colour);
+                    let xx = x_start + x;
+                    let yy = y_start + y;
+                    tiles
+                        .set_pixel(xx, yy, settings.colours[colour])
+                        .expect("Pixel should be in range");
+                    if let Some(backdrop) = settings.backdrop {
+                        tiles.set_pixel(xx + 1, yy + 1, backdrop);
+                    }
                 }
 
                 x += 1;
@@ -251,71 +390,46 @@ pub const fn bake_inner(font: &Font, text: &str, tiles: &mut TileCollection) {
     }
 }
 
-pub struct BakedText {
-    width: usize,
-    width_pixels: usize,
-    height: usize,
-    tiles: &'static [u32],
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-const fn cast_u32_to_bytes(a: &[u32]) -> &[u8] {
-    unsafe { core::slice::from_raw_parts(a.as_ptr().cast(), a.len() * 4) }
-}
+    static FONT: Font = include_font!("examples/font/ark-pixel-10px-proportional-ja.ttf", 10);
 
-impl BakedText {
-    pub const fn new(
-        tiles: &'static [u32],
-        width: usize,
-        height: usize,
-        width_pixels: usize,
-    ) -> Self {
-        Self {
-            width,
-            height,
-            tiles,
-            width_pixels,
-        }
+    #[test_case]
+    fn check_chars(_: &mut crate::Gba) {
+        let mut chars = Chars::new("Hello, 世界!");
+        assert_eq!(chars.next(), Some('H'));
+        assert_eq!(chars.next(), Some('e'));
+        assert_eq!(chars.next(), Some('l'));
+        assert_eq!(chars.next(), Some('l'));
+        assert_eq!(chars.next(), Some('o'));
+        assert_eq!(chars.next(), Some(','));
+        assert_eq!(chars.next(), Some(' '));
+        assert_eq!(chars.next(), Some('世'));
+        assert_eq!(chars.next(), Some('界'));
+        assert_eq!(chars.next(), Some('!'));
+        assert_eq!(chars.next(), None);
     }
 
-    pub const fn data(&self) -> &'static [u32] {
-        self.tiles
+    #[test_case]
+    fn check_chars_next_back(_: &mut crate::Gba) {
+        let mut chars = Chars::new("Hello, 世界!");
+        assert_eq!(chars.next_back(), Some('!'));
+        assert_eq!(chars.next_back(), Some('界'));
+        assert_eq!(chars.next_back(), Some('世'));
+        assert_eq!(chars.next_back(), Some(' '));
+        assert_eq!(chars.next_back(), Some(','));
+        assert_eq!(chars.next_back(), Some('o'));
+        assert_eq!(chars.next_back(), Some('l'));
+        assert_eq!(chars.next_back(), Some('l'));
+        assert_eq!(chars.next_back(), Some('e'));
+        assert_eq!(chars.next_back(), Some('H'));
+        assert_eq!(chars.next_back(), None);
     }
 
-    pub const fn data_bytes(&self) -> &'static [u8] {
-        cast_u32_to_bytes(self.tiles)
-    }
-
-    pub const fn tile_set(&self) -> TileSet {
-        unsafe {
-            TileSet::new(
-                self.data_bytes(),
-                crate::display::tiled::TileFormat::FourBpp,
-            )
-        }
-    }
-
-    pub const fn width_tiles(&self) -> usize {
-        self.width
-    }
-
-    pub const fn width_pixels(&self) -> usize {
-        self.width_pixels
-    }
-
-    pub const fn height_tiles(&self) -> usize {
-        self.height
-    }
-
-    pub fn set_bg_tiles(&self, bg: &mut RegularBackground, position: impl Into<Vector2D<i32>>) {
-        let position = position.into();
-        for y in 0..self.height {
-            for x in 0..self.width {
-                bg.set_tile(
-                    position + vec2(x as i32, y as i32),
-                    &self.tile_set(),
-                    TileSetting::new((x + y * self.width) as u16, TileEffect::default()),
-                );
-            }
-        }
+    #[test_case]
+    fn check_pixel_width(_: &mut crate::Gba) {
+        assert_eq!(pixel_width(FONT.letter('t')), 4);
     }
 }

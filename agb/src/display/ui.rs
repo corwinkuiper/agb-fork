@@ -2,7 +2,7 @@ use agb_fixnum::{Rect, Vector2D, vec2};
 
 use crate::display::{
     tile_data::TileData,
-    tiled::{DynamicTile16, DynamicTile256, RegularBackground},
+    tiled::{DynamicTile16, DynamicTile256, RegularBackground, TileSet, TileSetting},
 };
 
 use super::tiled::TileFormat;
@@ -17,7 +17,7 @@ const TOP_LEFT_CORNER: usize = 0;
 const TOP_EDGE: usize = 1;
 const TOP_RIGHT_CORNER: usize = 2;
 const LEFT_EDGE: usize = 5;
-const CENTRE: usize = 6;
+pub const CENTRE: usize = 6;
 const RIGHT_EDGE: usize = 7;
 const BOTTOM_LEFT_CORNER: usize = 10;
 const BOTTOM_EDGE: usize = 11;
@@ -189,7 +189,7 @@ impl<'background> UiRectangle<'background> {
         self
     }
 
-    pub fn draw_image(&mut self, position: Vector2D<i32>, tile: &[u32]) -> &mut Self {
+    pub fn draw_image_overlay(&mut self, position: Vector2D<i32>, tile: &[u32]) -> &mut Self {
         let inner_tile_idx = self.get_tile(position);
         let inner_tile = self.tiles.tiles.get_tile_data(inner_tile_idx as u16);
         match self.background.tile_format() {
@@ -222,17 +222,92 @@ impl<'background> UiRectangle<'background> {
         self
     }
 
-    pub fn draw_tileset(&mut self, position: Vector2D<i32>, tiledata: &TileData) -> &mut Self {
+    pub fn draw_tileset_overlay(
+        &mut self,
+        position: Vector2D<i32>,
+        tiledata: &TileData,
+    ) -> &mut Self {
         for y in 0..tiledata.height as i32 {
             for x in 0..tiledata.width as i32 {
-                let setting = tiledata.tile_settings[x as usize + y as usize * tiledata.height];
+                let setting = tiledata.tile_settings[x as usize + y as usize * tiledata.width];
                 let tile = tiledata.tiles.get_tile_data(setting.tile_id());
-                self.draw_image(position + vec2(x, y), tile);
+                self.draw_image_overlay(position + vec2(x, y), tile);
             }
         }
 
         self
     }
+
+    pub fn draw_image(
+        &mut self,
+        pos: Vector2D<i32>,
+        tileset: &TileSet,
+        tile_setting: TileSetting,
+    ) -> &mut Self {
+        self.background
+            .set_tile(pos + self.rectangle.top_left(), tileset, tile_setting);
+
+        self
+    }
+
+    pub fn draw_tiles(&mut self, position: Vector2D<i32>, tiledata: &TileData) -> &mut Self {
+        for y in 0..tiledata.height {
+            for x in 0..tiledata.width {
+                let setting = tiledata.tile_settings[x + y * tiledata.width];
+                self.draw_image(
+                    vec2(x as i32, y as i32) + position,
+                    &tiledata.tiles,
+                    setting,
+                );
+            }
+        }
+
+        self
+    }
+}
+
+#[macro_export]
+macro_rules! ui_blit {
+    ($ui: expr, $sample: expr) => {{
+        use $crate::display::tile_data::TileData;
+        use $crate::display::tiled::{TileEffect, TileFormat, TileSet, TileSetting};
+        use $crate::display::ui::CENTRE;
+        use $crate::display::utils::*;
+
+        const SAMPLE: &TileData = $sample;
+        const UI: &TileData = $ui;
+
+        const NUM_TILES: usize = SAMPLE.tiles.tiles().len() / 8;
+
+        const CENTRE_TILE: &[u32] = UI.tiles.get_tile_data(CENTRE as u16);
+
+        static TILES: &[u32] = &const {
+            let mut output_tiles = [0u32; NUM_TILES * 8];
+
+            let mut tile_idx = 0;
+            while tile_idx < NUM_TILES {
+                let mut copy_idx = 0;
+                while copy_idx < 8 {
+                    output_tiles[tile_idx * 8 + copy_idx] = CENTRE_TILE[copy_idx];
+                    copy_idx += 1;
+                }
+                tile_idx += 1;
+            }
+
+            blit_16_colour(&mut output_tiles, SAMPLE.tiles.tiles());
+
+            output_tiles
+        };
+
+        const {
+            TileData::new(
+                unsafe { TileSet::new(cast_u32_to_bytes(TILES), TileFormat::FourBpp) },
+                SAMPLE.tile_settings,
+                SAMPLE.width,
+                SAMPLE.height,
+            )
+        }
+    }};
 }
 
 #[cfg(test)]
@@ -249,7 +324,9 @@ mod tests {
         test_runner::assert_image_output,
     };
 
-    include_background_gfx!(mod ui, UI => "gfx/ui.aseprite", CRAB => "examples/gfx/crab.aseprite");
+    include_background_gfx!(mod ui, UI => "examples/gfx/ui.aseprite", CRAB_UNBLIT => "examples/gfx/crab.aseprite");
+
+    static CRAB_BLIT: TileData = ui_blit!(&ui::UI, &ui::CRAB_UNBLIT);
 
     #[test_case]
     fn check_basic_ui(gba: &mut crate::Gba) {
@@ -285,13 +362,13 @@ mod tests {
         UiRectangle::new(
             Rect::new(
                 vec2(2, 2),
-                vec2(ui::CRAB.width as i32, ui::CRAB.height as i32),
+                vec2(CRAB_BLIT.width as i32, CRAB_BLIT.height as i32),
             ),
             &ui::UI,
             &mut bg,
         )
         .draw()
-        .draw_tileset(vec2(0, 0), &ui::CRAB);
+        .draw_tiles(vec2(0, 0), &CRAB_BLIT);
 
         bg.show(&mut frame);
         frame.commit();
