@@ -1,6 +1,7 @@
 use agb_fixnum::{Rect, Vector2D, vec2};
 
 use crate::display::{
+    font::{Font, bake::BakeSettings},
     tile_data::TileData,
     tiled::{DynamicTile16, DynamicTile256, RegularBackground, TileSet, TileSetting},
 };
@@ -264,6 +265,102 @@ impl<'background> UiRectangle<'background> {
 
         self
     }
+
+    pub fn draw_text_dynamic(
+        &mut self,
+        region: Rect<i32>,
+        font: &'static Font,
+        text: &str,
+        settings: BakeSettings,
+    ) -> &mut Self {
+        use alloc::vec::Vec;
+        use crate::InternalAllocator;
+        use crate::display::font::{Layout, LayoutSettings};
+        use crate::display::utils::blit_16_colour;
+
+        let position = region.position;
+        let width_tiles = region.size.x as usize;
+        let height_tiles = region.size.y as usize;
+        let max_line_length = region.size.x * 8;
+
+        let mut layout_settings = LayoutSettings::new()
+            .with_alignment(settings.alignment())
+            .with_palette_index(settings.palette_index())
+            .with_max_line_length(max_line_length)
+            .with_max_group_width(max_line_length);
+
+        if let Some(backdrop) = settings.backdrop() {
+            layout_settings = layout_settings.with_drop_shadow(backdrop);
+        }
+
+        // Preallocate tile buffer in IWRAM
+        let mut buffer = Vec::new_in(InternalAllocator);
+        buffer.resize(width_tiles * height_tiles * 8, 0u32);
+
+        // Initialize with UI background tile data
+        for ty in 0..height_tiles {
+            for tx in 0..width_tiles {
+                let rect_pos = position + vec2(tx as i32, ty as i32);
+                let inner_tile_idx = self.get_tile(rect_pos);
+                let inner_tile_data = self.tiles.tiles.get_tile_data(inner_tile_idx as u16);
+                let offset = (ty * width_tiles + tx) * 8;
+                buffer[offset..offset + 8].copy_from_slice(inner_tile_data);
+            }
+        }
+
+        // Render text into buffer
+        let layout = Layout::new(text, font, &layout_settings);
+
+        for letter_group in layout {
+            for (px_start, px) in letter_group.pixels_packed() {
+                let pos = px_start + letter_group.position();
+
+                let tx = pos.x as usize / 8;
+                let ty = pos.y as usize / 8;
+                let x_in_tile = pos.x.rem_euclid(8) * 4;
+                let y_in_tile = pos.y.rem_euclid(8) as usize;
+
+                if ty >= height_tiles || tx >= width_tiles {
+                    continue;
+                }
+
+                let left_offset = (ty * width_tiles + tx) * 8 + y_in_tile;
+                blit_16_colour(
+                    &mut buffer[left_offset..left_offset + 1],
+                    &[px << x_in_tile],
+                );
+
+                if x_in_tile > 0 && tx + 1 < width_tiles {
+                    let right_offset = (ty * width_tiles + tx + 1) * 8 + y_in_tile;
+                    blit_16_colour(
+                        &mut buffer[right_offset..right_offset + 1],
+                        &[px >> (32 - x_in_tile)],
+                    );
+                }
+            }
+        }
+
+        // Copy buffer out to dynamic tiles
+        for ty in 0..height_tiles {
+            for tx in 0..width_tiles {
+                let rect_pos = position + vec2(tx as i32, ty as i32);
+                let inner_tile_idx = self.get_tile(rect_pos);
+                let offset = (ty * width_tiles + tx) * 8;
+
+                let mut dynamic = DynamicTile16::new();
+                dynamic.data_mut().copy_from_slice(&buffer[offset..offset + 8]);
+                self.background.set_tile_dynamic16(
+                    rect_pos + self.rectangle.position,
+                    &dynamic,
+                    *self.tiles.tile_settings[inner_tile_idx]
+                        .clone()
+                        .tile_effect(),
+                );
+            }
+        }
+
+        self
+    }
 }
 
 #[macro_export]
@@ -346,6 +443,42 @@ mod tests {
         bg.show(&mut frame);
         frame.commit();
         assert_image_output("gfx/test_output/ui/basic.png");
+    }
+
+    #[test_case]
+    fn check_dynamic_text(gba: &mut crate::Gba) {
+        use crate::display::{
+            Palette16, Rgb15,
+            font::{Font, bake::BakeSettings},
+        };
+
+        static FONT: Font = include_font!("examples/font/dpl.ttf", 8);
+
+        const MY_PALETTE: Palette16 = ui::PALETTES[0].extend(&[Rgb15::BLACK, Rgb15::WHITE]);
+        VRAM_MANAGER.set_background_palette(0, &MY_PALETTE);
+
+        let mut graphics = gba.graphics.get();
+        let mut frame = graphics.frame();
+        let mut bg = RegularBackground::new(
+            Priority::P0,
+            RegularBackgroundSize::Background32x32,
+            TileFormat::FourBpp,
+        );
+
+        UiRectangle::new(Rect::new(vec2(2, 2), vec2(10, 4)), &ui::UI, &mut bg)
+            .draw()
+            .draw_text_dynamic(
+                Rect::new(vec2(1, 1), vec2(8, 2)),
+                &FONT,
+                "Hello",
+                BakeSettings::new()
+                    .with_colours(&MY_PALETTE.find([Rgb15::WHITE]))
+                    .with_backdrop(MY_PALETTE.find([Rgb15::BLACK])[0]),
+            );
+
+        bg.show(&mut frame);
+        frame.commit();
+        assert_image_output("gfx/test_output/ui/dynamic_text.png");
     }
 
     #[test_case]

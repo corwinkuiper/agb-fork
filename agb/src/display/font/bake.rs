@@ -120,6 +120,14 @@ impl BakeSettings {
     pub const fn backdrop(&self) -> Option<u8> {
         self.backdrop
     }
+
+    pub const fn alignment(&self) -> AlignmentKind {
+        self.alignment
+    }
+
+    pub const fn palette_index(&self) -> u8 {
+        self.colours[1]
+    }
 }
 
 struct Chars<'a> {
