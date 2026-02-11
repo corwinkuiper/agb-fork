@@ -273,10 +273,10 @@ impl<'background> UiRectangle<'background> {
         text: &str,
         settings: BakeSettings,
     ) -> &mut Self {
-        use alloc::vec::Vec;
         use crate::InternalAllocator;
         use crate::display::font::{Layout, LayoutSettings};
         use crate::display::utils::blit_16_colour;
+        use alloc::vec::Vec;
 
         let position = region.position;
         let width_tiles = region.size.x as usize;
@@ -348,7 +348,9 @@ impl<'background> UiRectangle<'background> {
                 let offset = (ty * width_tiles + tx) * 8;
 
                 let mut dynamic = DynamicTile16::new();
-                dynamic.data_mut().copy_from_slice(&buffer[offset..offset + 8]);
+                dynamic
+                    .data_mut()
+                    .copy_from_slice(&buffer[offset..offset + 8]);
                 self.background.set_tile_dynamic16(
                     rect_pos + self.rectangle.position,
                     &dynamic,
@@ -407,6 +409,122 @@ macro_rules! ui_blit {
     }};
 }
 
+#[macro_export]
+macro_rules! bake_number_set {
+    ($font: expr, $bake_settings: expr, $ui: expr) => {
+        [
+            $crate::ui_blit!($ui, $crate::bake!($font, "0", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "1", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "2", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "3", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "4", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "5", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "6", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "7", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "8", $bake_settings)),
+            $crate::ui_blit!($ui, $crate::bake!($font, "9", $bake_settings)),
+        ]
+    };
+}
+
+pub fn render_number_right(
+    rect: &mut UiRectangle,
+    pos: Vector2D<i32>,
+    max_digits: usize,
+    value: i32,
+    digits: &[TileData; 10],
+    ui_tiles: &'static TileData,
+) {
+    let abs = value.unsigned_abs();
+    let mut remaining = abs;
+    let mut i = max_digits;
+
+    loop {
+        i -= 1;
+        let digit = (remaining % 10) as usize;
+        remaining /= 10;
+        rect.draw_tiles(pos + vec2(i as i32, 0), &digits[digit]);
+        if remaining == 0 || i == 0 {
+            break;
+        }
+    }
+
+    while i > 0 {
+        i -= 1;
+        rect.draw_image(
+            pos + vec2(i as i32, 0),
+            &ui_tiles.tiles,
+            ui_tiles.tile_settings[CENTRE],
+        );
+    }
+}
+
+pub fn render_number_left(
+    rect: &mut UiRectangle,
+    pos: Vector2D<i32>,
+    max_digits: usize,
+    value: i32,
+    digits: &[TileData; 10],
+    ui_tiles: &'static TileData,
+) {
+    let abs = value.unsigned_abs();
+
+    let mut count = 0usize;
+    let mut tmp = abs;
+    loop {
+        count += 1;
+        tmp /= 10;
+        if tmp == 0 {
+            break;
+        }
+    }
+
+    let mut digit_buf = [0usize; 10];
+    let mut tmp = abs;
+    let mut i = count;
+    while i > 0 {
+        i -= 1;
+        digit_buf[i] = (tmp % 10) as usize;
+        tmp /= 10;
+    }
+
+    for i in 0..count {
+        rect.draw_tiles(pos + vec2(i as i32, 0), &digits[digit_buf[i]]);
+    }
+
+    for i in count..max_digits {
+        rect.draw_image(
+            pos + vec2(i as i32, 0),
+            &ui_tiles.tiles,
+            ui_tiles.tile_settings[CENTRE],
+        );
+    }
+}
+
+pub fn clear_region(
+    rect: &mut UiRectangle,
+    pos: Vector2D<i32>,
+    size: Vector2D<i32>,
+    ui_tiles: &'static TileData,
+) {
+    for y in 0..size.y {
+        for x in 0..size.x {
+            rect.draw_image(
+                pos + vec2(x, y),
+                &ui_tiles.tiles,
+                ui_tiles.tile_settings[CENTRE],
+            );
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! define_ui {
+    ($($tokens:tt)*) => {
+        $crate::__define_ui_inner!($crate, $($tokens)*);
+    };
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -452,7 +570,7 @@ mod tests {
             font::{Font, bake::BakeSettings},
         };
 
-        static FONT: Font = include_font!("examples/font/dpl.ttf", 8);
+        static FONT: Font = include_font!("fnt/ark-pixel-10px-proportional-latin.ttf", 10);
 
         const MY_PALETTE: Palette16 = ui::PALETTES[0].extend(&[Rgb15::BLACK, Rgb15::WHITE]);
         VRAM_MANAGER.set_background_palette(0, &MY_PALETTE);

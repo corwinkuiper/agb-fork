@@ -162,3 +162,10 @@ fn calculate_hash<T: Hash>(t: &T) -> u64 {
     t.hash(&mut s);
     s.finish()
 }
+
+mod define_ui;
+
+#[proc_macro]
+pub fn define_ui_inner(input: TokenStream) -> TokenStream {
+    define_ui::generate(input)
+}

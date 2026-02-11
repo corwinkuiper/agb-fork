@@ -309,6 +309,9 @@ pub use agb_macros::entry;
 pub use agb_macros::doctest;
 
 #[doc(hidden)]
+pub use agb_macros::define_ui_inner as __define_ui_inner;
+
+#[doc(hidden)]
 pub use agb_sound_converter::include_wav as include_wav_inner;
 
 /// Include a wav file to be used for sound effects or music.
@@ -522,7 +525,7 @@ impl Gba {
 ///
 /// #[agb::entry]
 /// fn main(mut gba: Gba) -> ! {
-///     // your game code here    
+///     // your game code here
 ///
 ///     loop {
 ///         agb::halt();
